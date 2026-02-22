@@ -1,5 +1,13 @@
 package com.example.persony
 
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
+import android.os.Environment
+import android.widget.Toast
+import java.io.File
+import java.io.FileOutputStream
 import android.app.DatePickerDialog
 import android.os.Bundle
 import android.widget.DatePicker
@@ -87,6 +95,84 @@ class MainActivity : ComponentActivity() {
         val notificationManager: android.app.NotificationManager =
             getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
         notificationManager.createNotificationChannel(channel)
+    }
+
+    fun generateFinancialReport(
+        transactions: List<Transaction>,
+        savings: List<SavingPlan>,
+        balance: Long,
+        totalIn: Long,
+        totalOut: Long
+    ) {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // Ukuran A4
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = Paint()
+        val titlePaint = Paint().apply {
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textSize = 18f
+        }
+
+        var y = 40f
+
+        // 1. Header
+        canvas.drawText("LAPORAN KEUANGAN PERSONY", 40f, y, titlePaint)
+        y += 20f
+        paint.textSize = 10f
+        canvas.drawText("Dicetak pada: ${SimpleDateFormat("dd MMMM yyyy HH:mm", Locale.getDefault()).format(Date())}", 40f, y, paint)
+        y += 40f
+
+        paint.style = Paint.Style.STROKE
+        canvas.drawRect(40f, y, 555f, y + 80f, paint)
+        paint.style = Paint.Style.FILL
+        y += 25f
+        canvas.drawText("Total Saldo Saat Ini:", 60f, y, paint)
+        canvas.drawText("Rp ${formatRupiah(balance)}", 400f, y, titlePaint.apply { textSize = 14f })
+        y += 20f
+        canvas.drawText("Total Pemasukan:", 60f, y, paint)
+        canvas.drawText("Rp ${formatRupiah(totalIn)}", 400f, y, paint.apply { color = android.graphics.Color.GREEN })
+        y += 20f
+        canvas.drawText("Total Pengeluaran:", 60f, y, paint.apply { color = android.graphics.Color.BLACK })
+        canvas.drawText("Rp ${formatRupiah(totalOut)}", 400f, y, paint.apply { color = android.graphics.Color.RED })
+
+        paint.color = android.graphics.Color.BLACK
+        y += 60f
+
+        // 3. Tabel Transaksi
+        canvas.drawText("RIWAYAT TRANSAKSI", 40f, y, titlePaint.apply { textSize = 12f })
+        y += 20f
+
+        // Header Tabel
+        paint.typeface = Typeface.DEFAULT_BOLD
+        canvas.drawText("Tanggal", 40f, y, paint)
+        canvas.drawText("Keterangan", 120f, y, paint)
+        canvas.drawText("Nominal", 450f, y, paint)
+        canvas.drawLine(40f, y + 5f, 555f, y + 5f, paint)
+        y += 25f
+
+        paint.typeface = Typeface.DEFAULT
+        transactions.forEach { tx ->
+            if (y > 800) return@forEach // Batas halaman sederhana
+            canvas.drawText(tx.date, 40f, y, paint)
+            canvas.drawText(tx.title, 120f, y, paint)
+            val prefix = if (tx.isExpense) "-" else "+"
+            canvas.drawText("$prefix Rp ${tx.amount}", 450f, y, paint)
+            y += 20f
+        }
+
+        pdfDocument.finishPage(page)
+
+        // Simpan ke folder Downloads
+        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Laporan_Persony_${System.currentTimeMillis()}.pdf")
+        try {
+            pdfDocument.writeTo(FileOutputStream(file))
+            Toast.makeText(this, "PDF berhasil disimpan di folder Downloads", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Gagal simpan PDF: ${e.message}", Toast.LENGTH_SHORT).show()
+        } finally {
+            pdfDocument.close()
+        }
     }
 }
 
@@ -251,9 +337,18 @@ fun MainContainer() {
                         balance = totalBalance,
                         transactions = transactions,
                         savings = savingPlans,
-                        dailyBudget = dailyBudget,     // Kirim data budget
-                        dailySpending = dailySpending, // Kirim data pengeluaran hari ini
-                        onUpdateBudget = onUpdateBudget, // Fungsi update
+                        dailyBudget = dailyBudget,
+                        dailySpending = dailySpending,
+                        onUpdateBudget = onUpdateBudget,
+                        onExportReport = {
+                            // Hitung totalIn dan totalOut dulu
+                            val totalIn = transactions.filter { !it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
+                            val totalOut = transactions.filter { it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
+
+                            (context as? MainActivity)?.generateFinancialReport(
+                                transactions, savingPlans, totalBalance, totalIn, totalOut
+                            )
+                        },
                         onBack = { selectedTab = 0 }
                     )
                     else -> PlaceholderScreen()
