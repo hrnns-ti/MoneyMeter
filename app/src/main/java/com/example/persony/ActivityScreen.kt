@@ -39,7 +39,8 @@ fun ActivityScreen(
     dailyBudget: Long,
     dailySpending: Long,
     onUpdateBudget: (Long) -> Unit,
-    onExportReport: () -> Unit, // Parameter Baru untuk PDF
+    onExportReport: () -> Unit,
+    onDeleteTransaction: (Transaction) -> Unit, // Tambahkan parameter ini
     onBack: () -> Unit
 ) {
     var selectedTimeRange by remember { mutableStateOf("Bulan") }
@@ -87,7 +88,7 @@ fun ActivityScreen(
             }
         }
 
-        // Kartu Pie Chart dengan Detail Persentase
+        // Kartu Pie Chart
         item {
             SavingsChartCard(
                 balance = balance,
@@ -98,7 +99,7 @@ fun ActivityScreen(
             )
         }
 
-        // Section Rincian Angka
+        // Section Rincian Dana
         item {
             SectionHeader(
                 title = "Rincian Dana",
@@ -111,10 +112,13 @@ fun ActivityScreen(
             InfoSummaryRow(income = totalIncome, expense = totalExpense, savings = totalSaved)
         }
 
-        // Daftar Transaksi Detail
+        // PERBAIKAN: Melewatkan onDelete ke TransactionItem
         if (showFullDetails) {
             items(transactions) { transaction ->
-                TransactionItem(transaction)
+                TransactionItem(
+                    transaction = transaction,
+                    onDelete = { onDeleteTransaction(transaction) }
+                )
             }
         }
 
@@ -123,14 +127,13 @@ fun ActivityScreen(
         item {
             ProductiveGrid(
                 onBudgetClick = { showBudgetDialog = true },
-                onExportClick = onExportReport // Klik Laporan -> Panggil fungsi PDF
+                onExportClick = onExportReport
             )
         }
 
         item { Spacer(modifier = Modifier.height(20.dp)) }
     }
 
-    // Dialog Input Budget
     if (showBudgetDialog) {
         BudgetDialog(
             currentBudget = dailyBudget,
@@ -144,11 +147,13 @@ fun ActivityScreen(
 }
 
 @Composable
-fun ProductiveGrid(onBudgetClick: () -> Unit, onExportClick: () -> Unit) {
+fun ProductiveGrid(
+    onBudgetClick: () -> Unit,
+    onExportClick: () -> Unit
+) {
     val tools = listOf(
         ToolItem("Budgeting", Icons.Default.Timer, ErrorRed, "Limit Harian"),
-        ToolItem("Laporan", Icons.Default.PictureAsPdf, Color(0xFFE64A19), "Ekspor PDF"),
-        ToolItem("Kalender", Icons.Default.DateRange, Color(0xFF1976D2), "Jadwal Gaji"),
+        ToolItem("Laporan", Icons.Default.PictureAsPdf, Color(0xFFE64A19), "Ekspor PDF")
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -165,14 +170,15 @@ fun ProductiveGrid(onBudgetClick: () -> Unit, onExportClick: () -> Unit) {
                                 when (tool.title) {
                                     "Budgeting" -> onBudgetClick()
                                     "Laporan" -> onExportClick()
-                                    // Tambahkan aksi lain di sini jika perlu
                                 }
                             }
                         )
                     }
                 }
                 if (rowItems.size < 3) {
-                    repeat(3 - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
+                    repeat(3 - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -229,9 +235,9 @@ fun SavingsChartCard(balance: Long, income: Long, expense: Long, savings: Long, 
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                ChartLegendDetail("Masuk", "$incomePercent%", SuccessGreen)
-                ChartLegendDetail("Keluar", "$expensePercent%", ErrorRed)
-                ChartLegendDetail("Simpan", "$savingsPercent%", MainPurple)
+                ChartLegendDetail("Pemasukan", "$incomePercent%", SuccessGreen)
+                ChartLegendDetail("Pengeluaran", "$expensePercent%", ErrorRed)
+                ChartLegendDetail("Tabungan", "$savingsPercent%", MainPurple)
             }
         }
     }
@@ -293,8 +299,8 @@ fun BudgetStatusCard(dailyBudget: Long, dailySpending: Long, isOverBudget: Boole
 @Composable
 fun InfoSummaryRow(income: Long, expense: Long, savings: Long) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        InfoMiniCard(Modifier.weight(1f), "Masuk", income, SuccessGreen)
-        InfoMiniCard(Modifier.weight(1f), "Keluar", expense, ErrorRed)
+        InfoMiniCard(Modifier.weight(1f), "Pemasukan", income, SuccessGreen)
+        InfoMiniCard(Modifier.weight(1f), "Pengeluaran", expense, ErrorRed)
         InfoMiniCard(Modifier.weight(1f), "Tabungan", savings, MainPurple)
     }
 }
@@ -382,10 +388,7 @@ fun ActivityHeader(onBack: () -> Unit) {
         IconButton(onClick = onBack, modifier = Modifier.background(MaterialTheme.colorScheme.surface, CircleShape)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
         }
-        Text("Analitik Keuangan", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        IconButton(onClick = {}, modifier = Modifier.background(MaterialTheme.colorScheme.surface, CircleShape)) {
-            Icon(Icons.Outlined.Assignment, contentDescription = null)
-        }
+        Text("Aktifitas & Analisis", fontWeight = FontWeight.Bold, fontSize = 20.sp)
     }
 }
 
