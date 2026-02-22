@@ -39,14 +39,54 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : ComponentActivity() {
+    // ... di dalam class MainActivity
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        createNotificationChannel()
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            androidx.core.app.ActivityCompat.requestPermissions(
+                this,
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                101
+            )
+        }
+
         enableEdgeToEdge()
         setContent {
             PersonyTheme {
                 MainContainer()
             }
         }
+    }
+
+    fun sendBudgetNotification(title: String, message: String) {
+        val builder = androidx.core.app.NotificationCompat.Builder(this, "BUDGET_CHANNEL")
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL) // Tambahkan suara/getar default
+            .setAutoCancel(true)
+
+        try {
+            val notificationManager = androidx.core.app.NotificationManagerCompat.from(this)
+            notificationManager.notify(System.currentTimeMillis().toInt(), builder.build())
+        } catch (e: SecurityException) {
+            // Log izin ditolak
+        }
+    }
+
+    private fun createNotificationChannel() {
+        val name = "Budget Alert"
+        val descriptionText = "Notifikasi ketika pengeluaran melebihi budget"
+        val importance = android.app.NotificationManager.IMPORTANCE_HIGH
+        val channel = android.app.NotificationChannel("BUDGET_CHANNEL", name, importance).apply {
+            description = descriptionText
+        }
+        val notificationManager: android.app.NotificationManager =
+            getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        notificationManager.createNotificationChannel(channel)
     }
 }
 
@@ -69,6 +109,29 @@ fun MainContainer() {
 
     val sdf = SimpleDateFormat("d/M/yyyy", Locale.getDefault())
     val today = sdf.format(Date())
+    val context = LocalContext.current
+
+    // State untuk Budgeting (Default: 0 berarti belum diatur)
+    var dailyBudget by rememberSaveable { mutableLongStateOf(0L) }
+
+    // Hitung pengeluaran khusus hari ini
+    val dailySpending = transactions
+        .filter { it.isExpense && it.date == "Hari ini" }
+        .sumOf { it.amount.replace(".", "").toLong() }
+
+    // Fungsi Update Budget
+    val onUpdateBudget: (Long) -> Unit = { newBudget ->
+        dailyBudget = newBudget
+    }
+
+    LaunchedEffect(dailySpending) {
+        if (dailyBudget in 1..dailySpending) {
+            (context as? MainActivity)?.sendBudgetNotification(
+                "Waduh, Boros Nih!",
+                "Pengeluaran hari ini sudah Rp ${formatRupiah(dailySpending)}. Melewati limit Rp ${formatRupiah(dailyBudget)}!"
+            )
+        }
+    }
 
     // Logika Tambah Transaksi
     val onAddNewTransaction: (String, Long, Boolean) -> Unit = { title, amount, isExpense ->
@@ -188,6 +251,9 @@ fun MainContainer() {
                         balance = totalBalance,
                         transactions = transactions,
                         savings = savingPlans,
+                        dailyBudget = dailyBudget,     // Kirim data budget
+                        dailySpending = dailySpending, // Kirim data pengeluaran hari ini
+                        onUpdateBudget = onUpdateBudget, // Fungsi update
                         onBack = { selectedTab = 0 }
                     )
                     else -> PlaceholderScreen()
