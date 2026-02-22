@@ -334,7 +334,7 @@ fun MainContainer() {
                             val totalOut = transactions.filter { it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
                             (context as? MainActivity)?.generateFinancialReport(transactions, savingPlans, totalBalance, totalIn, totalOut)
                         },
-                        onDeleteTransaction = onDeleteTransaction, // Pastikan ini ditambahkan
+                        onDeleteTransaction = onDeleteTransaction,
                         onBack = { selectedTab = 0 }
                     )
                     3 -> ProfileScreen(userName = userName, onNameChange = { userName = it }, onResetData = onResetData)
@@ -391,7 +391,6 @@ fun CustomBottomNavigation(selectedTab: Int, onTabSelected: (Int) -> Unit) {
         Row(Modifier.fillMaxSize(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
             NavigationIcon(Icons.Default.Home, selectedTab == 0) { onTabSelected(0) }
             NavigationIcon(Icons.Default.AccountBalanceWallet, selectedTab == 1) { onTabSelected(1) }
-            Box(Modifier.size(50.dp).background(MainPurple, CircleShape), Alignment.Center) { Icon(Icons.Default.Add, null, tint = Color.White) }
             NavigationIcon(Icons.Default.BarChart, selectedTab == 2) { onTabSelected(2) }
             NavigationIcon(Icons.Default.Person, selectedTab == 3) { onTabSelected(3) }
         }
