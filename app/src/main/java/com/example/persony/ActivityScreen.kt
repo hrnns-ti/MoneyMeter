@@ -34,13 +34,13 @@ import com.example.persony.ui.theme.*
 @Composable
 fun ActivityScreen(
     balance: Long,
-    transactions: List<Transaction>,
+    transactions: List<TransactionEntity>, // Update tipe data
     savings: List<SavingPlan>,
     dailyBudget: Long,
     dailySpending: Long,
     onUpdateBudget: (Long) -> Unit,
     onExportReport: () -> Unit,
-    onDeleteTransaction: (Transaction) -> Unit, // Tambahkan parameter ini
+    onDeleteTransaction: (TransactionEntity) -> Unit, // Update tipe data
     onBack: () -> Unit
 ) {
     var selectedTimeRange by remember { mutableStateOf("Bulan") }
@@ -50,9 +50,9 @@ fun ActivityScreen(
     val timeRanges = listOf("Hari", "Minggu", "Bulan", "Tahun")
     val isOverBudget = dailyBudget > 0 && dailySpending >= dailyBudget
 
-    // Hitung Statistik Nyata
-    val totalIncome = transactions.filter { !it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
-    val totalExpense = transactions.filter { it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
+    // Hitung Statistik Nyata (Gunakan Regex agar lebih aman)
+    val totalIncome = transactions.filter { !it.isExpense }.sumOf { it.amount.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L }
+    val totalExpense = transactions.filter { it.isExpense }.sumOf { it.amount.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L }
     val totalSaved = savings.sumOf { it.currentAmount }
 
     LazyColumn(
@@ -112,10 +112,9 @@ fun ActivityScreen(
             InfoSummaryRow(income = totalIncome, expense = totalExpense, savings = totalSaved)
         }
 
-        // PERBAIKAN: Melewatkan onDelete ke TransactionItem
         if (showFullDetails) {
             items(transactions) { transaction ->
-                TransactionItem(
+                TransactionItemEntity(
                     transaction = transaction,
                     onDelete = { onDeleteTransaction(transaction) }
                 )
@@ -143,6 +142,69 @@ fun ActivityScreen(
                 showBudgetDialog = false
             }
         )
+    }
+}
+
+@Composable
+fun SavingsChartCard(balance: Long, income: Long, expense: Long, savings: Long, range: String) {
+    val total = (income + expense + savings).toFloat()
+
+    // Cegah Division by Zero
+    val displayTotal = if (total == 0f) 1f else total
+
+    val incomePercent = (income / displayTotal * 100).toInt()
+    val expensePercent = (expense / displayTotal * 100).toInt()
+    val savingsPercent = (savings / displayTotal * 100).toInt()
+
+    val incomeSweep = (income / displayTotal) * 360f
+    val expenseSweep = (expense / displayTotal) * 360f
+    val savingsSweep = (savings / displayTotal) * 360f
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .background(Brush.linearGradient(listOf(LightPurple, SoftLavender)))
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("Efisiensi Dana ($range)", color = DarkBlue.copy(alpha = 0.6f), fontSize = 14.sp)
+                    Text("Rp ${formatRupiah(balance)}", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = DarkBlue)
+                }
+                Icon(Icons.Default.TrendingUp, null, tint = SuccessGreen)
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
+                Canvas(modifier = Modifier.size(160.dp)) {
+                    drawArc(Color.White.copy(alpha = 0.3f), 0f, 360f, false, style = Stroke(30f))
+                    if (total > 0) {
+                        drawArc(SuccessGreen, -90f, incomeSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
+                        drawArc(ErrorRed, -90f + incomeSweep, expenseSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
+                        drawArc(MainPurple, -90f + incomeSweep + expenseSweep, savingsSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
+                    }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val status = if (expense > income && income > 0) "Boros" else if (total == 0f) "Kosong" else "Stabil"
+                    Text(status, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = if(status == "Stabil") DarkBlue else ErrorRed)
+                    Text("Kondisi Keuangan", color = TextSecondary, fontSize = 11.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                ChartLegendDetail("Masuk", "$incomePercent%", SuccessGreen)
+                ChartLegendDetail("Keluar", "$expensePercent%", ErrorRed)
+                ChartLegendDetail("Tabung", "$savingsPercent%", MainPurple)
+            }
+        }
     }
 }
 
@@ -180,64 +242,6 @@ fun ProductiveGrid(
                         Spacer(modifier = Modifier.weight(1f))
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun SavingsChartCard(balance: Long, income: Long, expense: Long, savings: Long, range: String) {
-    val total = (income + expense + savings).toFloat()
-
-    val incomePercent = if (total > 0) (income / total * 100).toInt() else 0
-    val expensePercent = if (total > 0) (expense / total * 100).toInt() else 0
-    val savingsPercent = if (total > 0) (savings / total * 100).toInt() else 0
-
-    val incomeSweep = if (total > 0) (income / total) * 360f else 0f
-    val expenseSweep = if (total > 0) (expense / total) * 360f else 0f
-    val savingsSweep = if (total > 0) (savings / total) * 360f else 0f
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        elevation = CardDefaults.cardElevation(0.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .background(Brush.linearGradient(listOf(LightPurple, SoftLavender)))
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text("Efisiensi Dana ($range)", color = DarkBlue.copy(alpha = 0.6f), fontSize = 14.sp)
-                    Text("Rp ${formatRupiah(balance)}", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = DarkBlue)
-                }
-                Icon(Icons.Default.TrendingUp, null, tint = SuccessGreen)
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
-                Canvas(modifier = Modifier.size(160.dp)) {
-                    drawArc(Color.White.copy(alpha = 0.3f), 0f, 360f, false, style = Stroke(30f))
-                    drawArc(SuccessGreen, -90f, incomeSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
-                    drawArc(ErrorRed, -90f + incomeSweep, expenseSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
-                    drawArc(MainPurple, -90f + incomeSweep + expenseSweep, savingsSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    val status = if (expense > income) "Boros" else "Stabil"
-                    Text(status, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = if(status == "Stabil") DarkBlue else ErrorRed)
-                    Text("Kondisi Dompet", color = TextSecondary, fontSize = 11.sp)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                ChartLegendDetail("Pemasukan", "$incomePercent%", SuccessGreen)
-                ChartLegendDetail("Pengeluaran", "$expensePercent%", ErrorRed)
-                ChartLegendDetail("Tabungan", "$savingsPercent%", MainPurple)
             }
         }
     }

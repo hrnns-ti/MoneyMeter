@@ -1,16 +1,18 @@
 package com.example.persony
 
-import android.graphics.Canvas
+import android.Manifest
+import android.R
+import android.app.DatePickerDialog
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
-import android.os.Environment
-import android.widget.Toast
-import java.io.File
-import java.io.FileOutputStream
-import android.app.DatePickerDialog
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.widget.DatePicker
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -27,12 +29,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +42,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.persony.ui.theme.*
+import java.io.File
+import java.io.FileOutputStream
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
@@ -53,115 +58,144 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         createNotificationChannel()
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            androidx.core.app.ActivityCompat.requestPermissions(
-                this,
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                101
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
         }
 
         enableEdgeToEdge()
         setContent {
             PersonyTheme {
-                MainContainer()
+                val viewModel: PersonyViewModel = viewModel()
+                MainContainer(viewModel)
             }
         }
     }
 
+    // --- FITUR OFFLINE: NOTIFIKASI & PDF ---
+
     fun sendBudgetNotification(title: String, message: String) {
-        val builder = androidx.core.app.NotificationCompat.Builder(this, "BUDGET_CHANNEL")
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+        val builder = NotificationCompat.Builder(this, "BUDGET_CHANNEL")
+            .setSmallIcon(R.drawable.ic_dialog_alert)
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
 
         try {
-            val notificationManager = androidx.core.app.NotificationManagerCompat.from(this)
+            val notificationManager = NotificationManagerCompat.from(this)
             notificationManager.notify(System.currentTimeMillis().toInt(), builder.build())
         } catch (e: SecurityException) { }
     }
 
     private fun createNotificationChannel() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val name = "Budget Alert"
-            val descriptionText = "Notifikasi ketika pengeluaran melebihi budget"
-            val importance = android.app.NotificationManager.IMPORTANCE_HIGH
-            val channel = android.app.NotificationChannel("BUDGET_CHANNEL", name, importance).apply {
-                description = descriptionText
-            }
-            val notificationManager: android.app.NotificationManager =
-                getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "BUDGET_CHANNEL", "Budget Alert",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply { description = "Notifikasi limit budget" }
+            val notificationManager: NotificationManager =
+                getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
 
-    fun generateFinancialReport(
-        transactions: List<Transaction>,
-        savings: List<SavingPlan>,
-        balance: Long,
-        totalIn: Long,
-        totalOut: Long
-    ) {
+    fun generateFinancialReport(transactions: List<TransactionEntity>, balance: Long, totalIn: Long, totalOut: Long) {
         val pdfDocument = PdfDocument()
+        // Ukuran A4: 595 x 842 unit
         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
         val page = pdfDocument.startPage(pageInfo)
         val canvas = page.canvas
-        val paint = Paint()
-        val titlePaint = Paint().apply {
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textSize = 18f
-        }
 
-        var y = 40f
-        canvas.drawText("LAPORAN KEUANGAN", 40f, y, titlePaint)
-        y += 20f
-        paint.textSize = 10f
-        canvas.drawText("Dicetak pada: ${SimpleDateFormat("dd MMMM yyyy HH:mm", Locale.getDefault()).format(Date())}", 40f, y, paint)
+        // Objek Paint untuk berbagai gaya teks
+        val titlePaint = Paint().apply { typeface = Typeface.DEFAULT_BOLD; textSize = 22f; color = android.graphics.Color.BLACK }
+        val subtitlePaint = Paint().apply { typeface = Typeface.DEFAULT; textSize = 10f; color = android.graphics.Color.GRAY }
+        val headerPaint = Paint().apply { typeface = Typeface.DEFAULT_BOLD; textSize = 12f; color = android.graphics.Color.BLACK }
+        val textPaint = Paint().apply { typeface = Typeface.DEFAULT; textSize = 10f; color = android.graphics.Color.BLACK }
+        val linePaint = Paint().apply { strokeWidth = 1f; color = android.graphics.Color.LTGRAY }
+        val primaryColorPaint = Paint().apply { color = android.graphics.Color.parseColor("#6A5AE0") } // MainPurple
+
+        var y = 60f
+        val startX = 40f
+        val endX = 555f
+
+        // 1. HEADER (Judul & Tanggal Cetak)
+        canvas.drawText("LAPORAN KEUANGAN PERSONY", startX, y, titlePaint)
+        y += 15f
+        val sdf = SimpleDateFormat("dd MMMM yyyy, HH:mm", Locale.getDefault())
+        canvas.drawText("Dicetak pada: ${sdf.format(Date())}", startX, y, subtitlePaint)
         y += 40f
 
-        paint.style = Paint.Style.STROKE
-        canvas.drawRect(40f, y, 555f, y + 80f, paint)
-        paint.style = Paint.Style.FILL
+        // 2. SUMMARY BOX (Kotak Ringkasan)
+        // Gambar background kotak ungu muda tipis
+        val rectPaint = Paint().apply { color = android.graphics.Color.parseColor("#F5F4FF") }
+        canvas.drawRoundRect(startX, y, endX, y + 80f, 15f, 15f, rectPaint)
+
+        var summaryY = y + 25f
+        // Total Saldo
+        canvas.drawText("Total Saldo Saat Ini", startX + 20f, summaryY, textPaint)
+        val balanceText = "Rp ${formatRupiah(balance)}"
+        canvas.drawText(balanceText, endX - 20f - headerPaint.measureText(balanceText), summaryY, headerPaint)
+
+        summaryY += 25f
+        // Pemasukan vs Pengeluaran
+        canvas.drawText("Total Pemasukan", startX + 20f, summaryY, textPaint)
+        val inText = "+ Rp ${formatRupiah(totalIn)}"
+        val greenPaint = Paint().apply { typeface = Typeface.DEFAULT_BOLD; textSize = 11f; color = android.graphics.Color.parseColor("#4CAF50") }
+        canvas.drawText(inText, endX - 20f - greenPaint.measureText(inText), summaryY, greenPaint)
+
+        summaryY += 20f
+        canvas.drawText("Total Pengeluaran", startX + 20f, summaryY, textPaint)
+        val outText = "- Rp ${formatRupiah(totalOut)}"
+        val redPaint = Paint().apply { typeface = Typeface.DEFAULT_BOLD; textSize = 11f; color = android.graphics.Color.parseColor("#F44336") }
+        canvas.drawText(outText, endX - 20f - redPaint.measureText(outText), summaryY, redPaint)
+
+        y += 120f
+
+        // 3. TRANSACTION TABLE HEADER
+        canvas.drawText("RIWAYAT TRANSAKSI", startX, y, headerPaint)
+        y += 15f
+        canvas.drawLine(startX, y, endX, y, primaryColorPaint.apply { strokeWidth = 2f })
+        y += 20f
+
+        // Judul Kolom
+        canvas.drawText("TANGGAL", startX, y, headerPaint.apply { textSize = 9f })
+        canvas.drawText("KETERANGAN", startX + 80f, y, headerPaint)
+        canvas.drawText("NOMINAL", endX - headerPaint.measureText("NOMINAL"), y, headerPaint)
+        y += 10f
+        canvas.drawLine(startX, y, endX, y, linePaint)
         y += 25f
-        canvas.drawText("Total Saldo Saat Ini:", 60f, y, paint)
-        canvas.drawText("Rp ${formatRupiah(balance)}", 400f, y, titlePaint.apply { textSize = 14f })
-        y += 20f
-        canvas.drawText("Total Pemasukan:", 60f, y, paint)
-        canvas.drawText("Rp ${formatRupiah(totalIn)}", 400f, y, paint.apply { color = android.graphics.Color.GREEN })
-        y += 20f
-        canvas.drawText("Total Pengeluaran:", 60f, y, paint.apply { color = android.graphics.Color.BLACK })
-        canvas.drawText("Rp ${formatRupiah(totalOut)}", 400f, y, paint.apply { color = android.graphics.Color.RED })
 
-        paint.color = android.graphics.Color.BLACK
-        y += 60f
-        canvas.drawText("RIWAYAT TRANSAKSI", 40f, y, titlePaint.apply { textSize = 12f })
-        y += 20f
-
-        paint.typeface = Typeface.DEFAULT_BOLD
-        canvas.drawText("Tanggal", 40f, y, paint)
-        canvas.drawText("Keterangan", 120f, y, paint)
-        canvas.drawText("Nominal", 450f, y, paint)
-        canvas.drawLine(40f, y + 5f, 555f, y + 5f, paint)
-        y += 25f
-
-        paint.typeface = Typeface.DEFAULT
+        // 4. LIST TRANSAKSI (Tabel Baris)
         transactions.forEach { tx ->
-            if (y > 800) return@forEach
-            canvas.drawText(tx.date, 40f, y, paint)
-            canvas.drawText(tx.title, 120f, y, paint)
-            val prefix = if (tx.isExpense) "-" else "+"
-            canvas.drawText("$prefix Rp ${tx.amount}", 450f, y, paint)
+            if (y > 800) return@forEach // Cegah overflow halaman
+
+            // Tanggal
+            canvas.drawText(tx.date, startX, y, textPaint)
+
+            // Keterangan
+            val titleDisplay = if (tx.title.length > 30) tx.title.take(27) + "..." else tx.title
+            canvas.drawText(titleDisplay, startX + 80f, y, textPaint)
+
+            // Nominal
+            val amountDisplay = (if (tx.isExpense) "-" else "+") + " Rp ${tx.amount}"
+            val amountColor = if (tx.isExpense) redPaint.apply { textSize = 10f } else greenPaint.apply { textSize = 10f }
+            canvas.drawText(amountDisplay, endX - amountColor.measureText(amountDisplay), y, amountColor)
+
+            y += 15f
+            canvas.drawLine(startX, y, endX, y, linePaint.apply { alpha = 50 }) // Garis pemisah tipis
             y += 20f
         }
 
+        // 5. FOOTER
+        canvas.drawText("Laporan ini dibuat secara otomatis oleh aplikasi Persony.", startX, 810f, subtitlePaint)
+
         pdfDocument.finishPage(page)
+
+        // Simpan file
         val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Laporan_Persony_${System.currentTimeMillis()}.pdf")
         try {
             pdfDocument.writeTo(FileOutputStream(file))
-            Toast.makeText(this, "PDF disimpan di Downloads", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "PDF berhasil disimpan di folder Download", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(this, "Gagal simpan PDF: ${e.message}", Toast.LENGTH_SHORT).show()
         } finally {
@@ -172,114 +206,28 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainContainer() {
+fun MainContainer(viewModel: PersonyViewModel) {
+    val transactions by viewModel.transactions.collectAsState(initial = emptyList())
+    val bills by viewModel.bills.collectAsState(initial = emptyList())
+    val savings by viewModel.savings.collectAsState(initial = emptyList())
+    val prefs by viewModel.userPrefs.collectAsState(initial = UserPrefs())
+
     var selectedTab by remember { mutableIntStateOf(0) }
     var isViewingAllTransactions by remember { mutableStateOf(false) }
-
-    var totalBalance by rememberSaveable { mutableLongStateOf(14570800L) }
-    var transactions by remember { mutableStateOf<List<Transaction>>(sampleTransactions) }
-    var bills by remember { mutableStateOf<List<Bill>>(sampleBills) }
-    var savingPlans by remember { mutableStateOf<List<SavingPlan>>(sampleSavings) }
-    var userName by rememberSaveable { mutableStateOf("User Baru") }
-    var dailyBudget by rememberSaveable { mutableLongStateOf(0L) }
-
     var showTransactionDialog by remember { mutableStateOf(false) }
     var showBillDialog by remember { mutableStateOf(false) }
-    var selectedBillForMenu by remember { mutableStateOf<Bill?>(null) }
-    var editingBill by remember { mutableStateOf<Bill?>(null) }
+    var selectedBillForMenu by remember { mutableStateOf<BillEntity?>(null) }
+    var editingBill by remember { mutableStateOf<BillEntity?>(null) }
 
-    val sdf = SimpleDateFormat("d/M/yyyy", Locale.getDefault())
-    val today = sdf.format(Date())
     val context = LocalContext.current
-
-    val onResetData = {
-        totalBalance = 0L
-        transactions = emptyList()
-        bills = emptyList()
-        savingPlans = emptyList()
-        dailyBudget = 0L
-        userName = "User Baru"
-    }
-
-    val onDeleteTransaction: (Transaction) -> Unit = { transaction ->
-        val amountLong = transaction.amount.replace(".", "").toLongOrNull() ?: 0L
-        if (transaction.isExpense) {
-            totalBalance += amountLong
-        } else {
-            totalBalance -= amountLong
-        }
-        transactions = transactions.filter { it != transaction }
-    }
-
     val dailySpending = transactions
         .filter { it.isExpense && it.date == "Hari ini" }
-        .sumOf { it.amount.replace(".", "").toLong() }
+        .sumOf { it.amount.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L }
 
-    val onUpdateBudget: (Long) -> Unit = { newBudget -> dailyBudget = newBudget }
-
-    LaunchedEffect(dailySpending, dailyBudget) {
-        if (dailyBudget in 1..dailySpending) {
-            (context as? MainActivity)?.sendBudgetNotification(
-                "Waduh, Boros Nih!",
-                "Pengeluaran hari ini Rp ${formatRupiah(dailySpending)}. Lewat limit Rp ${formatRupiah(dailyBudget)}!"
-            )
+    LaunchedEffect(dailySpending, prefs.dailyBudget) {
+        if (prefs.dailyBudget in 1..dailySpending) {
+            (context as? MainActivity)?.sendBudgetNotification("Limit Tercapai!", "Pengeluaran hari ini Rp ${formatRupiah(dailySpending)}")
         }
-    }
-
-    val onAddNewTransaction: (String, Long, Boolean) -> Unit = { title, amount, isExpense ->
-        val newEntry = Transaction(title, "Hari ini", formatRupiah(amount), isExpense)
-        transactions = listOf(newEntry) + transactions
-        if (isExpense) totalBalance -= amount else totalBalance += amount
-        showTransactionDialog = false
-    }
-
-    val onAddNewSaving: (String, Long, String, ImageVector) -> Unit = { name, target, location, icon ->
-        savingPlans = savingPlans + SavingPlan(name = name, target = target, currentAmount = 0L, location = location, icon = icon)
-    }
-
-    val onDepositSaving: (String, Long) -> Unit = { id, amount ->
-        if (totalBalance >= amount) {
-            val plan = savingPlans.find { it.id == id }
-            if (plan != null) {
-                savingPlans = savingPlans.map { if (it.id == id) it.copy(currentAmount = it.currentAmount + amount) else it }
-                totalBalance -= amount
-                transactions = listOf(Transaction("Simpan ke ${plan.name}", "Hari ini", formatRupiah(amount), true)) + transactions
-            }
-        }
-    }
-
-    val onWithdrawSaving: (String, Long) -> Unit = { id, amount ->
-        val plan = savingPlans.find { it.id == id }
-        if (plan != null && plan.currentAmount >= amount) {
-            savingPlans = savingPlans.map { if (it.id == id) it.copy(currentAmount = it.currentAmount - amount) else it }
-            onAddNewTransaction("Tarik dari ${plan.name}", amount, false)
-        }
-    }
-
-    val onUpdateSaving: (SavingPlan) -> Unit = { updated ->
-        savingPlans = savingPlans.map { if (it.id == updated.id) updated else it }
-    }
-
-    val onDeleteSaving: (String) -> Unit = { id -> savingPlans = savingPlans.filter { it.id != id } }
-
-    val onSaveBill: (String, Long, String, String, String?) -> Unit = { title, amount, date, rec, id ->
-        if (id == null) {
-            bills = bills + Bill(title = title, price = "Rp ${formatRupiah(amount)}", date = date, recurrence = rec)
-        } else {
-            bills = bills.map { if (it.id == id) it.copy(title = title, price = "Rp ${formatRupiah(amount)}", date = date, recurrence = rec) else it }
-        }
-        showBillDialog = false
-        editingBill = null
-    }
-
-    val onCompleteBill: (Bill) -> Unit = { bill ->
-        if (bill.recurrence == "Sekali") {
-            bills = bills.filter { it.id != bill.id }
-        } else {
-            val nextDate = calculateNextDate(bill.date, bill.recurrence)
-            bills = bills.map { if (it.id == bill.id) it.copy(date = nextDate) else it }
-        }
-        selectedBillForMenu = null
     }
 
     Scaffold(
@@ -291,53 +239,17 @@ fun MainContainer() {
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            AnimatedContent(
-                targetState = if (isViewingAllTransactions) -1 else selectedTab,
-                label = "PageTransition"
-            ) { state ->
+            AnimatedContent(targetState = if (isViewingAllTransactions) -1 else selectedTab, label = "") { state ->
                 when (state) {
-                    -1 -> AllTransactionsScreen(
-                        transactions = transactions,
-                        onBack = { isViewingAllTransactions = false },
-                        onDeleteTransaction = onDeleteTransaction
-                    )
-                    0 -> HomeScreen(
-                        userName = userName,
-                        balance = totalBalance,
-                        transactionList = transactions.take(5),
-                        billList = bills.sortedByDescending { it.date == today },
-                        onAddTransactionClick = { showTransactionDialog = true },
-                        onAddBillClick = { showBillDialog = true },
-                        onBillClick = { selectedBillForMenu = it },
-                        onSeeAllTransactions = { isViewingAllTransactions = true },
-                        onDeleteTransaction = onDeleteTransaction
-                    )
-                    1 -> SavingScreen(
-                        savings = savingPlans,
-                        totalBalance = totalBalance,
-                        onAddSaving = onAddNewSaving,
-                        onDeposit = onDepositSaving,
-                        onWithdraw = onWithdrawSaving,
-                        onUpdate = onUpdateSaving,
-                        onDelete = onDeleteSaving,
-                        onBack = { selectedTab = 0 }
-                    )
-                    2 -> ActivityScreen(
-                        balance = totalBalance,
-                        transactions = transactions,
-                        savings = savingPlans,
-                        dailyBudget = dailyBudget,
-                        dailySpending = dailySpending,
-                        onUpdateBudget = onUpdateBudget,
-                        onExportReport = {
-                            val totalIn = transactions.filter { !it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
-                            val totalOut = transactions.filter { it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
-                            (context as? MainActivity)?.generateFinancialReport(transactions, savingPlans, totalBalance, totalIn, totalOut)
-                        },
-                        onDeleteTransaction = onDeleteTransaction,
-                        onBack = { selectedTab = 0 }
-                    )
-                    3 -> ProfileScreen(userName = userName, onNameChange = { userName = it }, onResetData = onResetData)
+                    -1 -> AllTransactionsScreen(transactions, { isViewingAllTransactions = false }, { viewModel.deleteTransaction(it) })
+                    0 -> HomeScreen(prefs.userName, prefs.totalBalance, transactions.take(5), bills, { showTransactionDialog = true }, { showBillDialog = true }, { selectedBillForMenu = it }, { isViewingAllTransactions = true }, { viewModel.deleteTransaction(it) })
+                    1 -> SavingScreen(savings.map { it.toSavingPlan() }, prefs.totalBalance, { n, t, l, i -> viewModel.addSaving(n, t, l, i) }, { id, amt -> viewModel.depositSaving(id, amt) }, { id, amt -> viewModel.withdrawSaving(id, amt) }, { viewModel.updateSaving(it.toEntity()) }, { viewModel.deleteSaving(it) }, { selectedTab = 0 })
+                    2 -> ActivityScreen(prefs.totalBalance, transactions, savings.map { it.toSavingPlan() }, prefs.dailyBudget, dailySpending, { viewModel.updateBudget(it) }, {
+                        val totalIn = transactions.filter { !it.isExpense }.sumOf { it.amount.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L }
+                        val totalOut = transactions.filter { it.isExpense }.sumOf { it.amount.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L }
+                        (context as? MainActivity)?.generateFinancialReport(transactions, prefs.totalBalance, totalIn, totalOut)
+                    }, { viewModel.deleteTransaction(it) }, { selectedTab = 0 })
+                    3 -> ProfileScreen(prefs.userName, { viewModel.updateName(it) }, { viewModel.resetData() })
                     else -> PlaceholderScreen()
                 }
             }
@@ -349,25 +261,41 @@ fun MainContainer() {
             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
                 Text(selectedBillForMenu!!.title, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 Spacer(modifier = Modifier.height(16.dp))
+
+                // TOMBOL TANDAI SELESAI (BAYAR)
                 ListItem(
-                    headlineContent = { Text("Tandai Selesai") },
+                    headlineContent = { Text("Tandai Selesai / Bayar") },
                     leadingContent = { Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen) },
-                    modifier = Modifier.clickable { onCompleteBill(selectedBillForMenu!!) }
+                    modifier = Modifier.clickable {
+                        val bill = selectedBillForMenu!!
+                        // Jika pengulangan 'Sekali', hapus. Jika rutin, majukan tanggalnya.
+                        if (bill.recurrence == "Sekali") {
+                            viewModel.deleteBill(bill.id)
+                        } else {
+                            val nextDate = calculateNextDate(bill.date, bill.recurrence)
+                            viewModel.saveBill(bill.title, bill.price.replace(Regex("[^0-9]"), "").toLong(), nextDate, bill.recurrence, bill.id)
+                        }
+                        selectedBillForMenu = null
+                    }
                 )
+
+                // TOMBOL EDIT
                 ListItem(
-                    headlineContent = { Text("Ubah") },
-                    leadingContent = { Icon(Icons.Default.Edit, null) },
+                    headlineContent = { Text("Ubah Tagihan") },
+                    leadingContent = { Icon(Icons.Default.Edit, null, tint = MainPurple) },
                     modifier = Modifier.clickable {
                         editingBill = selectedBillForMenu
                         showBillDialog = true
                         selectedBillForMenu = null
                     }
                 )
+
+                // TOMBOL HAPUS
                 ListItem(
-                    headlineContent = { Text("Hapus", color = ErrorRed) },
+                    headlineContent = { Text("Hapus Permanen", color = ErrorRed) },
                     leadingContent = { Icon(Icons.Default.Delete, null, tint = ErrorRed) },
                     modifier = Modifier.clickable {
-                        bills = bills.filter { it.id != selectedBillForMenu!!.id }
+                        viewModel.deleteBill(selectedBillForMenu!!.id)
                         selectedBillForMenu = null
                     }
                 )
@@ -376,18 +304,80 @@ fun MainContainer() {
         }
     }
 
-    if (showTransactionDialog) TransactionDialog(onDismiss = { showTransactionDialog = false }, onConfirm = onAddNewTransaction)
-    if (showBillDialog) BillDialog(existingBill = editingBill, onDismiss = { showBillDialog = false; editingBill = null }, onConfirm = onSaveBill)
+    // --- DIALOG TRANSAKSI ---
+    if (showTransactionDialog) {
+        TransactionDialog(
+            onDismiss = { showTransactionDialog = false },
+            onConfirm = { t, a, e ->
+                // 1. Simpan ke Database melalui ViewModel
+                viewModel.addTransaction(t, a, e)
+                // 2. LANGSUNG TUTUP DIALOG
+                showTransactionDialog = false
+            }
+        )
+    }
+
+// --- DIALOG TAGIHAN ---
+    if (showBillDialog) {
+        BillDialogEntity(
+            existing = editingBill,
+            onDismiss = {
+                showBillDialog = false
+                editingBill = null
+            },
+            onConfirm = { t, a, d, r, id ->
+                // 1. Simpan ke Database melalui ViewModel
+                viewModel.saveBill(t, a, d, r, id)
+                // 2. LANGSUNG TUTUP DIALOG
+                showBillDialog = false
+                editingBill = null
+            },
+        )
+    }
+}
+
+// --- SHARED UI COMPONENTS ---
+
+@Composable
+fun HomeScreen(userName: String, balance: Long, transactionList: List<TransactionEntity>, billList: List<BillEntity>, onAddTx: () -> Unit, onAddBill: () -> Unit, onBillClick: (BillEntity) -> Unit, onSeeAll: () -> Unit, onDeleteTx: (TransactionEntity) -> Unit) {
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        item { HeaderSection(userName) }
+        item { BalanceCard(balance, onAddTx) }
+        item { SectionHeader("Tagihan Mendatang", "+ Tambah", onAddBill) }
+        item { LazyRow(horizontalArrangement = Arrangement.spacedBy(15.dp)) { items(billList) { PaymentCardEntity(it) { onBillClick(it) } } } }
+        item { SectionHeader("Transaksi Terakhir", "Lihat semua", onSeeAll) }
+        items(transactionList) { TransactionItemEntity(it, { onDeleteTx(it) }) }
+        item { Spacer(Modifier.height(20.dp)) }
+    }
+}
+
+@Composable
+fun TransactionItemEntity(transaction: TransactionEntity, onDelete: () -> Unit) {
+    var showConfirm by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(45.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.AccountBalanceWallet, null, tint = if (isSystemInDarkTheme()) LightPurple else DarkBlue)
+        }
+        Spacer(Modifier.width(15.dp))
+        Column(Modifier.weight(1f)) {
+            Text(transaction.title, fontWeight = FontWeight.Bold)
+            Text(transaction.date, color = MaterialTheme.colorScheme.onBackground.copy(0.5f), fontSize = 12.sp)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(text = (if (transaction.isExpense) "-Rp " else "+Rp ") + transaction.amount, color = if (transaction.isExpense) ErrorRed else SuccessGreen, fontWeight = FontWeight.Bold)
+            IconButton(onClick = { showConfirm = true }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Delete, null, tint = ErrorRed.copy(0.3f), modifier = Modifier.size(16.dp)) }
+        }
+    }
+    if (showConfirm) {
+        AlertDialog(onDismissRequest = { showConfirm = false }, title = { Text("Hapus?") }, text = { Text("Saldo akan dikembalikan secara otomatis.") },
+            confirmButton = { TextButton(onClick = { onDelete(); showConfirm = false }) { Text("Hapus", color = ErrorRed) } },
+            dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("Batal") } })
+    }
 }
 
 @Composable
 fun CustomBottomNavigation(selectedTab: Int, onTabSelected: (Int) -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().height(80.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
-        shadowElevation = 15.dp
-    ) {
+    Surface(modifier = Modifier.fillMaxWidth().height(80.dp), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp), shadowElevation = 15.dp) {
         Row(Modifier.fillMaxSize(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
             NavigationIcon(Icons.Default.Home, selectedTab == 0) { onTabSelected(0) }
             NavigationIcon(Icons.Default.AccountBalanceWallet, selectedTab == 1) { onTabSelected(1) }
@@ -398,213 +388,8 @@ fun CustomBottomNavigation(selectedTab: Int, onTabSelected: (Int) -> Unit) {
 }
 
 @Composable
-fun NavigationIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, isSelected: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isSelected) MainPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-            modifier = Modifier.size(28.dp)
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AllTransactionsScreen(transactions: List<Transaction>, onBack: () -> Unit, onDeleteTransaction: (Transaction) -> Unit) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Semua Transaksi", fontWeight = FontWeight.Bold) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali") } }
-        )
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(transactions) { transaction ->
-                TransactionItem(transaction = transaction, onDelete = { onDeleteTransaction(transaction) })
-            }
-            item { Spacer(modifier = Modifier.height(20.dp)) }
-        }
-    }
-}
-
-@Composable
-fun HomeScreen(
-    userName: String,
-    balance: Long,
-    transactionList: List<Transaction>,
-    billList: List<Bill>,
-    onAddTransactionClick: () -> Unit,
-    onAddBillClick: () -> Unit,
-    onBillClick: (Bill) -> Unit,
-    onSeeAllTransactions: () -> Unit,
-    onDeleteTransaction: (Transaction) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
-    ) {
-        item { HeaderSection(name = userName) }
-        item { BalanceCard(balance = balance, onAddClick = onAddTransactionClick) }
-        item { SectionHeader(title = "Tagihan Mendatang", actionText = "+ Tambah", onActionClick = onAddBillClick) }
-        item { LazyRow(horizontalArrangement = Arrangement.spacedBy(15.dp)) { items(billList) { bill -> PaymentCard(bill = bill, onClick = { onBillClick(bill) }) } } }
-        item { SectionHeader(title = "Transaksi Terakhir", onActionClick = onSeeAllTransactions) }
-        items(transactionList) { transaction ->
-            TransactionItem(transaction = transaction, onDelete = { onDeleteTransaction(transaction) })
-        }
-        item { Spacer(modifier = Modifier.height(20.dp)) }
-    }
-}
-
-@Composable
-fun TransactionItem(transaction: Transaction, onDelete: (() -> Unit)? = null) {
-    var showDeleteConfirm by remember { mutableStateOf(false) }
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier.size(45.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.AccountBalanceWallet, null, tint = if (isSystemInDarkTheme()) LightPurple else DarkBlue)
-        }
-        Spacer(modifier = Modifier.width(15.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(transaction.title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-            Text(transaction.date, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 12.sp)
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = (if (transaction.isExpense) "-Rp " else "+Rp ") + transaction.amount,
-                color = if (transaction.isExpense) ErrorRed else SuccessGreen,
-                fontWeight = FontWeight.Bold
-            )
-            if (onDelete != null) {
-                IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Delete, null, tint = ErrorRed.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
-                }
-            }
-        }
-    }
-
-    if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Hapus Transaksi?") },
-            text = { Text("Saldo akan dikembalikan secara otomatis sesuai nominal transaksi ini.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onDelete?.invoke()
-                    showDeleteConfirm = false }) {
-                    Text("Hapus", color = ErrorRed) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Batal") }
-            }
-        )
-    }
-}
-
-@Composable
-fun PaymentCard(bill: Bill, onClick: () -> Unit) {
-    val sdf = SimpleDateFormat("d/M/yyyy", Locale.getDefault())
-    val today = sdf.format(Date())
-    val isDueDate = bill.date == today
-    val bgColor = if (isDueDate) MainPurple else MaterialTheme.colorScheme.surface
-    val textColor = if (isDueDate) Color.White else MaterialTheme.colorScheme.onSurface
-
-    Card(
-        modifier = Modifier.width(160.dp).height(180.dp).clickable { onClick() },
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = bgColor)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Box(modifier = Modifier.size(40.dp).background(textColor.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.CalendarMonth, null, tint = textColor, modifier = Modifier.size(20.dp))
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            Text(bill.title, color = textColor, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(bill.price, color = textColor.copy(alpha = 0.8f), fontSize = 12.sp)
-            Text(if(isDueDate) "Hari Ini" else bill.date, color = textColor.copy(alpha = 0.6f), fontSize = 10.sp)
-            if (bill.recurrence != "Sekali") { Text("🔄 ${bill.recurrence}", color = textColor.copy(alpha = 0.5f), fontSize = 9.sp) }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun BillDialog(existingBill: Bill?, onDismiss: () -> Unit, onConfirm: (String, Long, String, String, String?) -> Unit) {
-    val context = LocalContext.current
-    var title by remember { mutableStateOf(existingBill?.title ?: "") }
-    var amountStr by remember { mutableStateOf(existingBill?.price?.replace(Regex("[^0-9]"), "") ?: "") }
-    var dateStr by remember { mutableStateOf(existingBill?.date ?: "Pilih Tanggal") }
-    var recurrence by remember { mutableStateOf(existingBill?.recurrence ?: "Sekali") }
-    var expanded by remember { mutableStateOf(false) }
-    val calendar = Calendar.getInstance()
-    val datePickerDialog = DatePickerDialog(context, { _, year, month, day -> dateStr = "$day/${month + 1}/$year" }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH))
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if(existingBill == null) "Tambah Tagihan" else "Ubah Tagihan", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Nama Tagihan") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = amountStr, onValueChange = { if (it.all { c -> c.isDigit() }) amountStr = it }, label = { Text("Nominal") }, prefix = { Text("Rp ") }, modifier = Modifier.fillMaxWidth())
-                OutlinedCard(onClick = { datePickerDialog.show() }, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Event, null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(12.dp)); Text(dateStr)
-                    }
-                }
-                Box {
-                    OutlinedCard(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Repeat, null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(12.dp)); Text("Ulangi: $recurrence")
-                        }
-                    }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        listOf("Sekali", "Mingguan", "Bulanan", "Tahunan").forEach { option ->
-                            DropdownMenuItem(text = { Text(option) }, onClick = { recurrence = option; expanded = false })
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { Button(onClick = { val amount = amountStr.toLongOrNull() ?: 0L; if (title.isNotEmpty() && amount > 0 && dateStr != "Pilih Tanggal") onConfirm(title, amount, dateStr, recurrence, existingBill?.id) }, colors = ButtonDefaults.buttonColors(containerColor = MainPurple)) { Text("Simpan", color = Color.White) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TransactionDialog(onDismiss: () -> Unit, onConfirm: (String, Long, Boolean) -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var amountStr by remember { mutableStateOf("") }
-    var isExpense by remember { mutableStateOf(true) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Tambah Transaksi", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Nama Transaksi") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = amountStr, onValueChange = { if (it.all { char -> char.isDigit() }) amountStr = it }, label = { Text("Nominal") }, modifier = Modifier.fillMaxWidth(), prefix = { Text("Rp ") })
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Jenis:")
-                    Spacer(modifier = Modifier.width(8.dp))
-                    FilterChip(selected = isExpense, onClick = { isExpense = true }, label = { Text("Keluar") })
-                    Spacer(modifier = Modifier.width(8.dp))
-                    FilterChip(selected = !isExpense, onClick = { isExpense = false }, label = { Text("Masuk") })
-                }
-            }
-        },
-        confirmButton = { Button(onClick = { val amount = amountStr.toLongOrNull() ?: 0L; if (title.isNotEmpty() && amount > 0) onConfirm(title, amount, isExpense) }, colors = ButtonDefaults.buttonColors(containerColor = MainPurple)) { Text("Simpan", color = Color.White) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } }
-    )
+fun NavigationIcon(icon: ImageVector, isSelected: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick) { Icon(icon, null, tint = if (isSelected) MainPurple else MaterialTheme.colorScheme.onSurface.copy(0.4f), modifier = Modifier.size(28.dp)) }
 }
 
 @Composable
@@ -615,9 +400,7 @@ fun BalanceCard(balance: Long, onAddClick: () -> Unit) {
                 Text("Total Saldo", color = TextSecondary)
                 Text("Rp ${formatRupiah(balance)}", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = DarkBlue)
             }
-            FloatingActionButton(onClick = onAddClick, Modifier.align(Alignment.CenterEnd).size(45.dp), containerColor = Color.White, shape = CircleShape) {
-                Icon(Icons.Default.Add, null, tint = MainPurple)
-            }
+            FloatingActionButton(onClick = onAddClick, Modifier.align(Alignment.CenterEnd).size(45.dp), containerColor = Color.White, shape = CircleShape) { Icon(Icons.Default.Add, null, tint = MainPurple) }
         }
     }
 }
@@ -625,23 +408,195 @@ fun BalanceCard(balance: Long, onAddClick: () -> Unit) {
 @Composable
 fun HeaderSection(name: String) {
     Row(Modifier.fillMaxWidth().padding(top = 20.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        Column {
-            Text("Halo,", color = TextSecondary, fontSize = 16.sp)
-            Text(name, color = MaterialTheme.colorScheme.onBackground, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        }
+        Column { Text("Halo,", color = TextSecondary, fontSize = 16.sp); Text(name, color = MaterialTheme.colorScheme.onBackground, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
 @Composable
 fun SectionHeader(title: String, actionText: String = "Lihat semua", onActionClick: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground)
-        TextButton(onClick = onActionClick) { Text(actionText, color = MainPurple, fontSize = 14.sp) }
+        Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp); TextButton(onClick = onActionClick) { Text(actionText, color = MainPurple, fontSize = 14.sp) }
     }
 }
 
 @Composable
-fun PlaceholderScreen() { Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Halaman Pengembangan", color = MaterialTheme.colorScheme.onBackground) } }
+fun PaymentCardEntity(bill: BillEntity, onClick: () -> Unit) {
+    val today = SimpleDateFormat("d/M/yyyy", Locale.getDefault()).format(Date())
+    val isDueDate = bill.date == today
+
+    // Styling dinamis
+    val bgColor = if (isDueDate) MainPurple else MaterialTheme.colorScheme.surface
+    val textColor = if (isDueDate) Color.White else MaterialTheme.colorScheme.onSurface
+    val borderColor = if (isDueDate) MainPurple else MainPurple.copy(alpha = 0.2f)
+    val iconBgColor = if (isDueDate) Color.White.copy(alpha = 0.2f) else MainPurple.copy(alpha = 0.1f)
+    val iconTint = if (isDueDate) Color.White else MainPurple
+
+    Card(
+        modifier = Modifier
+            .width(165.dp) // Sedikit lebih lebar
+            .height(185.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(24.dp),
+        // Tambahkan Border Ungu Tipis
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (isDueDate) 4.dp else 2.dp,
+            color = borderColor
+        ),
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        // Perbaikan Shadow agar lebih soft dan premium
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isDueDate) 10.dp else 4.dp,
+            pressedElevation = 3.dp
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .background(iconBgColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CalendarMonth,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Text(
+                text = bill.title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                maxLines = 1,
+                color = textColor
+            )
+
+            Text(
+                text = bill.price,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = textColor.copy(alpha = 0.85f)
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isDueDate) Icons.Default.Warning else Icons.Default.Schedule,
+                    contentDescription = null,
+                    tint = textColor.copy(alpha = 0.6f),
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = if (isDueDate) "HARI INI" else bill.date,
+                    fontSize = 11.sp,
+                    fontWeight = if (isDueDate) FontWeight.ExtraBold else FontWeight.Normal,
+                    color = textColor.copy(alpha = 0.7f),
+                    letterSpacing = if (isDueDate) 0.5.sp else 0.sp
+                )
+            }
+
+            if (bill.recurrence != "Sekali") {
+                Text(
+                    text = "🔄 ${bill.recurrence}",
+                    fontSize = 10.sp,
+                    color = textColor.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TransactionDialog(onDismiss: () -> Unit, onConfirm: (String, Long, Boolean) -> Unit) {
+    var title by remember { mutableStateOf("") }; var amt by remember { mutableStateOf("") }; var isExp by remember { mutableStateOf(true) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Tambah Transaksi") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(title, { title = it }, label = { Text("Nama") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(amt, { if (it.all { c -> c.isDigit() }) amt = it }, label = { Text("Nominal") }, prefix = { Text("Rp ") }, modifier = Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilterChip(selected = isExp, onClick = { isExp = true }, label = { Text("Keluar") })
+                Spacer(Modifier.width(8.dp))
+                FilterChip(selected = !isExp, onClick = { isExp = false }, label = { Text("Masuk") })
+            }
+        }
+    }, confirmButton = { Button(onClick = { val a = amt.toLongOrNull() ?: 0L; if (title.isNotEmpty() && a > 0) onConfirm(title, a, isExp) }) { Text("Simpan") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } })
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BillDialogEntity(existing: BillEntity?, onDismiss: () -> Unit, onConfirm: (String, Long, String, String, String?) -> Unit) {
+    val ctx = LocalContext.current
+    var title by remember { mutableStateOf(existing?.title ?: "") }
+    var amt by remember { mutableStateOf(existing?.price?.replace(Regex("[^0-9]"), "") ?: "") }
+    var date by remember { mutableStateOf(existing?.date ?: "Pilih Tanggal") }
+    var rec by remember { mutableStateOf(existing?.recurrence ?: "Sekali") }
+    var expanded by remember { mutableStateOf(false) } // Untuk Dropdown pengulangan
+
+    val cal = Calendar.getInstance()
+    val dpd = DatePickerDialog(ctx, { _, y, m, d -> date = "$d/${m + 1}/$y" }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH))
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (existing == null) "Tambah Tagihan" else "Edit Tagihan") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(title, { title = it }, label = { Text("Nama Tagihan") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(amt, { if (it.all { c -> c.isDigit() }) amt = it }, label = { Text("Nominal") }, prefix = { Text("Rp ") }, modifier = Modifier.fillMaxWidth())
+
+                // Pilih Tanggal
+                OutlinedCard(onClick = { dpd.show() }, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(16.dp)) { Icon(Icons.Default.Event, null); Spacer(Modifier.width(12.dp)); Text(date) }
+                }
+
+                // Pilih Pengulangan
+                Box {
+                    OutlinedCard(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Repeat, null)
+                            Spacer(Modifier.width(12.dp))
+                            Text("Ulangi: $rec")
+                        }
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        listOf("Sekali", "Mingguan", "Bulanan", "Tahunan").forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = { rec = option; expanded = false }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val a = amt.toLongOrNull() ?: 0L
+                if (title.isNotEmpty() && a > 0 && date != "Pilih Tanggal") onConfirm(title, a, date, rec, existing?.id)
+            }) { Text("Simpan") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AllTransactionsScreen(txs: List<TransactionEntity>, onBack: () -> Unit, onDelete: (TransactionEntity) -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(title = { Text("Semua Transaksi", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } })
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { items(txs) { TransactionItemEntity(it, { onDelete(it) }) } }
+    }
+}
 
 fun calculateNextDate(currentDate: String, recurrence: String): String {
     val sdf = SimpleDateFormat("d/M/yyyy", Locale.getDefault())
@@ -656,18 +611,10 @@ fun calculateNextDate(currentDate: String, recurrence: String): String {
     return sdf.format(cal.time)
 }
 
+@Composable
+fun PlaceholderScreen() { Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Coming Soon") } }
+
+// --- UTILS & MAPPERS ---
 fun formatRupiah(amount: Long): String = NumberFormat.getNumberInstance(Locale("id", "ID")).format(amount)
-
-data class Bill(val id: String = UUID.randomUUID().toString(), val title: String, val price: String, val date: String, val recurrence: String)
-data class Transaction(val title: String, val date: String, val amount: String, val isExpense: Boolean)
-
-val sampleBills = listOf(
-    Bill(title = "Adobe Premium", price = "Rp 450.000", date = "25/2/2026", recurrence = "Bulanan"),
-    Bill(title = "Spotify Family", price = "Rp 86.000", date = "22/2/2026", recurrence = "Bulanan")
-)
-
-val sampleTransactions = listOf(
-    Transaction("Apple Store", "21 Jan", "2.300.500", true),
-    Transaction("Gaji Kantor", "20 Jan", "12.000.000", false),
-    Transaction("Indomaret", "19 Jan", "150.000", true)
-)
+fun SavingEntity.toSavingPlan() = SavingPlan(id, name, target, currentAmount, location, iconName)
+fun SavingPlan.toEntity() = SavingEntity(id, name, target, currentAmount, location, iconName)

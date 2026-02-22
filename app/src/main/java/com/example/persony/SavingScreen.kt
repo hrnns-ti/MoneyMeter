@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,14 +32,30 @@ data class SavingPlan(
     val target: Long,
     val currentAmount: Long,
     val location: String,
-    val icon: ImageVector
+    val iconName: String
 )
+
+fun getIconFromName(name: String): ImageVector {
+    return when (name) {
+        "Laptop" -> Icons.Default.Laptop
+        "Flight" -> Icons.Default.Flight
+        "Shield" -> Icons.Default.Shield
+        "Home" -> Icons.Default.Home
+        "DirectionsCar" -> Icons.Default.DirectionsCar
+        "ShoppingBag" -> Icons.Default.ShoppingBag
+        "School" -> Icons.Default.School
+        "Work" -> Icons.Default.Work
+        "Favorite" -> Icons.Default.Favorite
+        "Celebration" -> Icons.Default.Celebration
+        else -> Icons.Default.Savings
+    }
+}
 
 @Composable
 fun SavingScreen(
     savings: List<SavingPlan>,
     totalBalance: Long,
-    onAddSaving: (String, Long, String, ImageVector) -> Unit, // Diperbarui agar menerima data
+    onAddSaving: (String, Long, String, String) -> Unit,
     onDeposit: (String, Long) -> Unit,
     onWithdraw: (String, Long) -> Unit,
     onUpdate: (SavingPlan) -> Unit,
@@ -70,13 +87,10 @@ fun SavingScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item {
-                Text(
-                    "Tabungan & Target",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(top = 20.dp)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 20.dp)) {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
+                    Text("Tabungan & Target", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                }
             }
 
             // Info Saldo Tersedia
@@ -88,24 +102,12 @@ fun SavingScreen(
                     ),
                     shape = RoundedCornerShape(20.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.AccountBalanceWallet, null, tint = MainPurple)
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            Text(
-                                "Tersedia untuk ditabung",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                "Rp ${formatRupiah(totalBalance)}",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
+                            Text("Tersedia untuk ditabung", fontSize = 12.sp, color = TextSecondary)
+                            Text("Rp ${formatRupiah(totalBalance)}", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         }
                     }
                 }
@@ -114,18 +116,9 @@ fun SavingScreen(
             items(savings, key = { it.id }) { plan ->
                 SavingItem(
                     plan = plan,
-                    onDepositClick = {
-                        selectedPlanForAction = plan
-                        actionType = "DEPOSIT"
-                    },
-                    onWithdrawClick = {
-                        selectedPlanForAction = plan
-                        actionType = "WITHDRAW"
-                    },
-                    onEditClick = {
-                        selectedPlanForAction = plan
-                        actionType = "EDIT"
-                    }
+                    onDepositClick = { selectedPlanForAction = plan; actionType = "DEPOSIT" },
+                    onWithdrawClick = { selectedPlanForAction = plan; actionType = "WITHDRAW" },
+                    onEditClick = { selectedPlanForAction = plan; actionType = "EDIT" }
                 )
             }
             item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -136,8 +129,8 @@ fun SavingScreen(
     if (showAddDialog) {
         AddSavingDialog(
             onDismiss = { showAddDialog = false },
-            onConfirm = { name, target, location, icon ->
-                onAddSaving(name, target, location, icon)
+            onConfirm = { name, target, location, iconName ->
+                onAddSaving(name, target, location, iconName)
                 showAddDialog = false
             }
         )
@@ -150,6 +143,7 @@ fun SavingScreen(
                 SavingActionDialog(
                     isDeposit = actionType == "DEPOSIT",
                     planName = plan.name,
+                    maxAmount = if (actionType == "DEPOSIT") totalBalance else plan.currentAmount,
                     onDismiss = { selectedPlanForAction = null },
                     onConfirm = { amount ->
                         if (actionType == "DEPOSIT") onDeposit(plan.id, amount)
@@ -162,14 +156,8 @@ fun SavingScreen(
                 EditSavingDialog(
                     plan = plan,
                     onDismiss = { selectedPlanForAction = null },
-                    onDelete = {
-                        onDelete(plan.id)
-                        selectedPlanForAction = null
-                    },
-                    onConfirm = { updatedPlan ->
-                        onUpdate(updatedPlan)
-                        selectedPlanForAction = null
-                    }
+                    onDelete = { onDelete(plan.id); selectedPlanForAction = null },
+                    onConfirm = { updated -> onUpdate(updated); selectedPlanForAction = null }
                 )
             }
         }
@@ -177,174 +165,86 @@ fun SavingScreen(
 }
 
 @Composable
-fun AddSavingDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (String, Long, String, ImageVector) -> Unit
-) {
+fun AddSavingDialog(onDismiss: () -> Unit, onConfirm: (String, Long, String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var targetStr by remember { mutableStateOf("") }
     var location by remember { mutableStateOf("") }
 
-    // Daftar pilihan ikon
     val iconOptions = listOf(
-        Icons.Default.Laptop, Icons.Default.Flight, Icons.Default.Shield,
-        Icons.Default.Home, Icons.Default.DirectionsCar, Icons.Default.ShoppingBag,
-        Icons.Default.School, Icons.Default.Favorite, Icons.Default.Celebration,
-        Icons.Default.Work, Icons.Default.Kitchen, Icons.Default.Headset
+        "Laptop", "Flight", "Shield", "Home", "DirectionsCar",
+        "ShoppingBag", "School", "Work", "Favorite", "Celebration"
     )
-    var selectedIcon by remember { mutableStateOf(iconOptions[0]) }
+    var selectedIconName by remember { mutableStateOf(iconOptions[0]) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Target Tabungan Baru", fontWeight = FontWeight.Bold) },
+        title = { Text("Target Baru", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nama Target") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = targetStr,
-                    onValueChange = { if (it.all { c -> c.isDigit() }) targetStr = it },
-                    label = { Text("Target Nominal") },
-                    prefix = { Text("Rp ") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = location,
-                    onValueChange = { location = it },
-                    label = { Text("Lokasi (Contoh: Bank Jago)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Target") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = targetStr, onValueChange = { if (it.all { c -> c.isDigit() }) targetStr = it }, label = { Text("Target Rp") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = location, onValueChange = { location = it }, label = { Text("Simpan di (Contoh: Bank Jago)") }, modifier = Modifier.fillMaxWidth())
 
                 Text("Pilih Ikon:", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("Geser ke kanan untuk lebih lengkapnya", fontSize = 10.sp)
-
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(vertical = 5.dp)
-                ) {
-                    items(iconOptions) { icon ->
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(iconOptions) { iconName ->
                         Box(
                             modifier = Modifier
                                 .size(45.dp)
                                 .background(
-                                    if (selectedIcon == icon) MainPurple else MainPurple.copy(alpha = 0.1f),
-                                    CircleShape
+                                    if (selectedIconName == iconName) MainPurple else MainPurple.copy(
+                                        alpha = 0.1f
+                                    ), CircleShape
                                 )
-                                .clickable { selectedIcon = icon },
+                                .clickable { selectedIconName = iconName },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                icon,
-                                contentDescription = null,
-                                tint = if (selectedIcon == icon) Color.White else MainPurple,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            Icon(getIconFromName(iconName), null, tint = if (selectedIconName == iconName) Color.White else MainPurple)
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    val target = targetStr.toLongOrNull() ?: 0L
-                    if (name.isNotEmpty() && target > 0) {
-                        onConfirm(name, target, location, selectedIcon)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MainPurple)
-            ) { Text("Simpan", color = Color.White) }
+            Button(onClick = {
+                val target = targetStr.toLongOrNull() ?: 0L
+                if(name.isNotEmpty() && target > 0) onConfirm(name, target, location, selectedIconName)
+            }) { Text("Simpan") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Batal") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } }
     )
 }
 
 @Composable
-fun SavingItem(
-    plan: SavingPlan,
-    onDepositClick: () -> Unit,
-    onWithdrawClick: () -> Unit,
-    onEditClick: () -> Unit
-) {
+fun SavingItem(plan: SavingPlan, onDepositClick: () -> Unit, onWithdrawClick: () -> Unit, onEditClick: () -> Unit) {
     val isReached = plan.currentAmount >= plan.target
     val progress = if (plan.target > 0) plan.currentAmount.toFloat() / plan.target.toFloat() else 0f
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(45.dp)
-                            .background(MainPurple.copy(alpha = 0.1f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(plan.icon, null, tint = MainPurple)
+                    Box(modifier = Modifier.size(45.dp).background(MainPurple.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(getIconFromName(plan.iconName), null, tint = MainPurple)
                     }
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                plan.name,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            if (isReached) {
-                                Spacer(Modifier.width(6.dp))
-                                Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = SuccessGreen,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                        Text(
-                            plan.location,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                        Text(plan.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(plan.location, fontSize = 12.sp, color = TextSecondary)
                     }
                 }
-                IconButton(onClick = onEditClick) {
-                    Icon(
-                        Icons.Default.Edit,
-                        null,
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                IconButton(onClick = onEditClick) { Icon(Icons.Default.Edit, null, tint = TextSecondary, modifier = Modifier.size(20.dp)) }
             }
 
             Spacer(Modifier.height(16.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    "Rp ${formatRupiah(plan.currentAmount)}",
-                    fontWeight = FontWeight.Bold,
-                    color = if (isReached) SuccessGreen else MainPurple
-                )
-                Text(
-                    "Target: Rp ${formatRupiah(plan.target)}",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
+                Text("Rp ${formatRupiah(plan.currentAmount)}", fontWeight = FontWeight.Bold, color = if (isReached) SuccessGreen else MainPurple)
+                Text("Target: Rp ${formatRupiah(plan.target)}", fontSize = 12.sp, color = TextSecondary)
             }
 
             Spacer(Modifier.height(8.dp))
@@ -358,24 +258,10 @@ fun SavingItem(
 
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onDepositClick,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MainPurple.copy(alpha = 0.1f),
-                        contentColor = MainPurple
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
+                Button(onClick = onDepositClick, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MainPurple.copy(alpha = 0.1f), contentColor = MainPurple)) {
                     Text("Tabung", fontWeight = FontWeight.Bold)
                 }
-
-                OutlinedButton(
-                    onClick = onWithdrawClick,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = plan.currentAmount > 0
-                ) {
+                OutlinedButton(onClick = onWithdrawClick, modifier = Modifier.weight(1f), enabled = plan.currentAmount > 0) {
                     Text("Tarik")
                 }
             }
@@ -387,45 +273,45 @@ fun SavingItem(
 fun SavingActionDialog(
     isDeposit: Boolean,
     planName: String,
+    maxAmount: Long,
     onDismiss: () -> Unit,
     onConfirm: (Long) -> Unit
 ) {
     var amountStr by remember { mutableStateOf("") }
+    val amount = amountStr.toLongOrNull() ?: 0L
+    val isError = isDeposit && amount > maxAmount
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(if (isDeposit) "Tabung ke $planName" else "Tarik dari $planName", fontWeight = FontWeight.Bold)
-        },
+        title = { Text(if (isDeposit) "Tabung ke $planName" else "Tarik dari $planName") },
         text = {
-            OutlinedTextField(
-                value = amountStr,
-                onValueChange = { if (it.all { c -> c.isDigit() }) amountStr = it },
-                label = { Text("Nominal") },
-                prefix = { Text("Rp ") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
+            Column {
+                OutlinedTextField(
+                    value = amountStr,
+                    onValueChange = { if (it.all { c -> c.isDigit() }) amountStr = it },
+                    label = { Text("Nominal") },
+                    prefix = { Text("Rp ") },
+                    isError = isError,
+                    supportingText = {
+                        if (isError) Text("Saldo tidak cukup!")
+                        else if (isDeposit) Text("Tersedia: Rp ${formatRupiah(maxAmount)}")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(amountStr.toLongOrNull() ?: 0L) },
-                colors = ButtonDefaults.buttonColors(containerColor = MainPurple)
-            ) { Text("Proses", color = Color.White) }
+                onClick = { onConfirm(amount) },
+                enabled = amount > 0 && !isError
+            ) { Text("Proses") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Batal") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } }
     )
 }
 
 @Composable
-fun EditSavingDialog(
-    plan: SavingPlan,
-    onDismiss: () -> Unit,
-    onDelete: () -> Unit,
-    onConfirm: (SavingPlan) -> Unit
-) {
+fun EditSavingDialog(plan: SavingPlan, onDismiss: () -> Unit, onDelete: () -> Unit, onConfirm: (SavingPlan) -> Unit) {
     var name by remember { mutableStateOf(plan.name) }
     var targetStr by remember { mutableStateOf(plan.target.toString()) }
     var location by remember { mutableStateOf(plan.location) }
@@ -435,49 +321,14 @@ fun EditSavingDialog(
         title = { Text("Ubah Detail Tabungan", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nama Tabungan") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = targetStr,
-                    onValueChange = { if (it.all { c -> c.isDigit() }) targetStr = it },
-                    label = { Text("Target Nominal") },
-                    prefix = { Text("Rp ") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = location,
-                    onValueChange = { location = it },
-                    label = { Text("Lokasi Penyimpanan") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Tabungan") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = targetStr, onValueChange = { if (it.all { c -> c.isDigit() }) targetStr = it }, label = { Text("Target Rp") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = location, onValueChange = { location = it }, label = { Text("Lokasi") }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    onConfirm(plan.copy(
-                        name = name,
-                        target = targetStr.toLongOrNull() ?: plan.target,
-                        location = location
-                    ))
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MainPurple)
-            ) { Text("Simpan", color = Color.White) }
+            Button(onClick = { onConfirm(plan.copy(name = name, target = targetStr.toLongOrNull() ?: plan.target, location = location)) }) { Text("Simpan") }
         },
-        dismissButton = {
-            TextButton(onClick = onDelete, colors = ButtonDefaults.textButtonColors(contentColor = ErrorRed)) {
-                Text("Hapus")
-            }
-        }
+        dismissButton = { TextButton(onClick = onDelete, colors = ButtonDefaults.textButtonColors(contentColor = ErrorRed)) { Text("Hapus") } }
     )
 }
-
-val sampleSavings = listOf(
-    SavingPlan("1", "Beli MacBook", 25000000L, 5000000L, "Bank Jago", Icons.Default.Laptop),
-    SavingPlan("2", "Liburan Jepang", 15000000L, 12000000L, "Tunai/Laci", Icons.Default.Flight),
-    SavingPlan("3", "Dana Darurat", 50000000L, 10000000L, "Rekening Utama", Icons.Default.Shield)
-)
