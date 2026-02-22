@@ -187,6 +187,7 @@ fun MainContainer() {
                     2 -> ActivityScreen(
                         balance = totalBalance,
                         transactions = transactions,
+                        savings = savingPlans,
                         onBack = { selectedTab = 0 }
                     )
                     else -> PlaceholderScreen()

@@ -13,7 +13,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Assignment
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -29,8 +31,18 @@ import com.example.persony.ui.theme.*
 fun ActivityScreen(
     balance: Long,
     transactions: List<Transaction>,
+    savings: List<SavingPlan>, // Sekarang menerima data tabungan
     onBack: () -> Unit
 ) {
+    // State untuk filter waktu
+    var selectedTimeRange by remember { mutableStateOf("Bulan") }
+    val timeRanges = listOf("Hari", "Minggu", "Bulan", "Tahun")
+
+    // Menghitung Statistik dari data nyata
+    val totalIncome = transactions.filter { !it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
+    val totalExpense = transactions.filter { it.isExpense }.sumOf { it.amount.replace(".", "").toLong() }
+    val totalSaved = savings.sumOf { it.currentAmount }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -39,11 +51,38 @@ fun ActivityScreen(
     ) {
         item { ActivityHeader(onBack) }
 
-        item { SavingsChartCard(balance) }
+        // Filter Rentang Waktu
+        item {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(timeRanges) { range ->
+                    FilterChip(
+                        selected = selectedTimeRange == range,
+                        onClick = { selectedTimeRange = range },
+                        label = { Text(range) },
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+            }
+        }
 
-        item { SectionHeader(title = "Fitur Offline", onActionClick = {}) }
+        item {
+            SavingsChartCard(
+                balance = balance,
+                income = totalIncome,
+                expense = totalExpense,
+                savings = totalSaved,
+                range = selectedTimeRange
+            )
+        }
 
-        item { QuickMenuRow() }
+        item { SectionHeader(title = "Rincian Dana", onActionClick = {}) }
+
+        item {
+            InfoSummaryRow(income = totalIncome, expense = totalExpense, savings = totalSaved)
+        }
 
         item { SectionHeader(title = "Riwayat Aktivitas", onActionClick = {}) }
 
@@ -68,7 +107,7 @@ fun ActivityHeader(onBack: () -> Unit) {
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
         }
-        Text("Analitik & Aktivitas", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text("Analitik Keuangan", fontWeight = FontWeight.Bold, fontSize = 20.sp)
         IconButton(
             onClick = {},
             modifier = Modifier.background(MaterialTheme.colorScheme.surface, CircleShape)
@@ -79,7 +118,14 @@ fun ActivityHeader(onBack: () -> Unit) {
 }
 
 @Composable
-fun SavingsChartCard(balance: Long) {
+fun SavingsChartCard(balance: Long, income: Long, expense: Long, savings: Long, range: String) {
+    val total = (income + expense + savings).toFloat()
+
+    // Proporsi Chart
+    val incomeSweep = if (total > 0) (income / total) * 360f else 0f
+    val expenseSweep = if (total > 0) (expense / total) * 360f else 0f
+    val savingsSweep = if (total > 0) (savings / total) * 360f else 0f
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -93,94 +139,80 @@ fun SavingsChartCard(balance: Long) {
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text("Total Saldo", color = TextSecondary, fontSize = 14.sp)
+                    Text("Efisiensi Dana ($range)", color = DarkBlue.copy(alpha = 0.6f), fontSize = 14.sp)
                     Text("Rp ${formatRupiah(balance)}", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = DarkBlue)
                 }
-                Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.5f)) {
-                    Text("Bulan Ini", modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkBlue)
+                Icon(Icons.Default.TrendingUp, null, tint = SuccessGreen)
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
+                Canvas(modifier = Modifier.size(160.dp)) {
+                    // Background Ring
+                    drawArc(Color.White.copy(alpha = 0.3f), 0f, 360f, false, style = Stroke(30f))
+
+                    // Pemasukan (Hijau)
+                    drawArc(SuccessGreen, -90f, incomeSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
+
+                    // Pengeluaran (Merah)
+                    drawArc(ErrorRed, -90f + incomeSweep, expenseSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
+
+                    // Tabungan (Ungu)
+                    drawArc(MainPurple, -90f + incomeSweep + expenseSweep, savingsSweep, false, style = Stroke(35f, cap = StrokeCap.Round))
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val status = if (expense > income) "Warning" else "Sehat"
+                    Text(status, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = if(status == "Sehat") DarkBlue else ErrorRed)
+                    Text("Kondisi Dompet", color = TextSecondary, fontSize = 11.sp)
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Chart dengan Warna Beragam
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(180.dp)) {
-                Canvas(modifier = Modifier.size(150.dp)) {
-                    // Background Ring
-                    drawArc(Color.White.copy(alpha = 0.3f), 0f, 360f, false, style = Stroke(30f))
-
-                    // Segmen 1: Kebutuhan (Ungu Utama)
-                    drawArc(MainPurple, -90f, 140f, false, style = Stroke(35f, cap = StrokeCap.Round))
-
-                    // Segmen 2: Tabungan (Biru Tua)
-                    drawArc(DarkBlue, 55f, 100f, false, style = Stroke(35f, cap = StrokeCap.Round))
-
-                    // Segmen 3: Hiburan (Oranye/Kuning - ErrorRed sebagai aksen)
-                    drawArc(ErrorRed, 160f, 60f, false, style = Stroke(35f, cap = StrokeCap.Round))
-
-                    // Segmen 4: Lain-lain (Hijau)
-                    drawArc(SuccessGreen, 225f, 40f, false, style = Stroke(35f, cap = StrokeCap.Round))
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Stabil", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = DarkBlue)
-                    Text("Kesehatan Finansial", color = TextSecondary, fontSize = 11.sp)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Legend Chart
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ChartLegendItem("Kebutuhan", MainPurple)
-                ChartLegendItem("Tabungan", DarkBlue)
-                ChartLegendItem("Lainnya", SuccessGreen)
+            // Legend Chart - Menggunakan fungsi yang tadi error
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                ChartLegendItem("Masuk", SuccessGreen)
+                ChartLegendItem("Keluar", ErrorRed)
+                ChartLegendItem("Simpan", MainPurple)
             }
         }
     }
 }
 
+// FUNGSI INI HARUS ADA DI DALAM FILE YANG SAMA ATAU PUBLIC
 @Composable
 fun ChartLegendItem(label: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(label, fontSize = 10.sp, color = DarkBlue)
+        Box(modifier = Modifier.size(10.dp).background(color, CircleShape))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(label, fontSize = 12.sp, color = DarkBlue, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
-fun QuickMenuRow() {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(15.dp),
-        contentPadding = PaddingValues(bottom = 10.dp)
-    ) {
-        item { QuickMenuCard("Catat Hutang", Icons.Default.Book, Color(0xFFE3F2FD), Color(0xFF1976D2)) }
-        item { QuickMenuCard("Target Simpanan", Icons.Default.AdsClick, Color(0xFFF1F8E9), SuccessGreen) }
-        item { QuickMenuCard("Ekspor Laporan", Icons.Default.PictureAsPdf, Color(0xFFFFF3E0), Color(0xFFE64A19)) }
-        item { QuickMenuCard("Kalkulasi Pajak", Icons.Default.Calculate, Color(0xFFF3E5F5), MainPurple) }
+fun InfoSummaryRow(income: Long, expense: Long, savings: Long) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        InfoMiniCard(Modifier.weight(1f), "Masuk", income, SuccessGreen)
+        InfoMiniCard(Modifier.weight(1f), "Keluar", expense, ErrorRed)
+        InfoMiniCard(Modifier.weight(1f), "Tabungan", savings, MainPurple)
     }
 }
 
 @Composable
-fun QuickMenuCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, bgColor: Color, iconColor: Color) {
-    Card(
-        modifier = Modifier.width(130.dp).height(140.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(2.dp)
+fun InfoMiniCard(modifier: Modifier, title: String, amount: Long, color: Color) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.Center) {
-            Box(
-                modifier = Modifier.size(45.dp).background(bgColor, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
-            }
-            Spacer(modifier = Modifier.height(15.dp))
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp)
-            Text("Offline", fontSize = 10.sp, color = TextSecondary)
+        Column(modifier = Modifier.padding(12.dp)) {
+            Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
+            Spacer(Modifier.height(4.dp))
+            Text(title, fontSize = 10.sp, color = TextSecondary)
+            Text(formatRupiah(amount), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
